@@ -433,9 +433,11 @@ class MailhogClientTest extends TestCase
 
         $allMessages = $this->client->findAllMessages();
 
-        $message = iterator_to_array($allMessages)[0];
+        $allMessages = iterator_to_array($allMessages);
 
-        $this->assertEquals('<h1>Hello world</h1>', $message->body);
+        $message = current($allMessages);
+
+        $this->assertStringContainsString('<h1>Hello world</h1>', $message->body);
     }
 
     /**

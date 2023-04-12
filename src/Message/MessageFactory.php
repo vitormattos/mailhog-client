@@ -3,9 +3,7 @@ declare(strict_types=1);
 
 namespace rpkamp\Mailhog\Message;
 
-use rpkamp\Mailhog\Message\Mime\MimePartCollection;
-
-use function quoted_printable_decode;
+use function implode;
 
 class MessageFactory
 {
@@ -14,30 +12,16 @@ class MessageFactory
      */
     public static function fromMailhogResponse(array $mailhogResponse): Message
     {
-        $mimeParts = MimePartCollection::fromMailhogResponse($mailhogResponse['MIME']['Parts'] ?? []);
-        $headers = Headers::fromMailhogResponse($mailhogResponse);
-
         return new Message(
-            $mailhogResponse['ID'],
-            Contact::fromString($headers->get('From')),
-            ContactCollection::fromString($headers->get('To', '')),
-            ContactCollection::fromString($headers->get('Cc', '')),
-            ContactCollection::fromString($headers->get('Bcc', '')),
-            $headers->get('Subject', ''),
-            !$mimeParts->isEmpty()
-                ? $mimeParts->getBody()
-                : static::decodeBody($headers, $mailhogResponse['Content']['Body']),
-            !$mimeParts->isEmpty() ? $mimeParts->getAttachments() : [],
-            $headers
+            (string) $mailhogResponse['id'],
+            Contact::fromString($mailhogResponse['sender_message']),
+            ContactCollection::fromString(implode(',', $mailhogResponse['recipients_message_to'])),
+            ContactCollection::fromString(implode(',', $mailhogResponse['recipients_message_cc'])),
+            ContactCollection::fromString(implode(',', $mailhogResponse['recipients_message_bcc'])),
+            $mailhogResponse['subject'],
+            $mailhogResponse['body'],
+            $mailhogResponse['attachments'],
+            new Headers([])
         );
-    }
-
-    private static function decodeBody(Headers $headers, string $body): string
-    {
-        if ($headers->get('Content-Transfer-Encoding') === 'quoted-printable') {
-            return quoted_printable_decode($body);
-        }
-
-        return $body;
     }
 }

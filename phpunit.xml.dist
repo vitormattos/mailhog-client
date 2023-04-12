@@ -5,8 +5,8 @@
          colors="true"
          >
     <php>
-        <env name="mailhog_smtp_dsn" value="smtp://localhost:2025" />
-        <env name="mailhog_api_uri" value="http://localhost:9025" />
+        <env name="mailhog_smtp_dsn" value="smtp://localhost:1025" />
+        <env name="mailhog_api_uri" value="http://localhost:1080" />
     </php>
 
     <filter>

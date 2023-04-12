@@ -12,6 +12,8 @@ use rpkamp\Mailhog\Specification\Specification;
 use RuntimeException;
 
 use function array_filter;
+use function array_key_exists;
+use function array_slice;
 use function count;
 use function iterator_to_array;
 use function json_decode;
@@ -46,16 +48,15 @@ class MailhogClient
     /**
      * @return Generator|Message[]
      */
-    public function findAllMessages(int $limit = 50)
+    public function findAllMessages()
     {
         $start = 0;
         while (true) {
             $request = $this->requestFactory->createRequest(
                 'GET',
                 sprintf(
-                    '%s/api/v2/messages?limit=%d&start=%d',
+                    '%s/api/messages/?page=%d',
                     $this->baseUri,
-                    $limit,
                     $start
                 )
             );
@@ -64,16 +65,63 @@ class MailhogClient
 
             $allMessageData = json_decode($response->getBody()->getContents(), true);
 
-            foreach ($allMessageData['items'] as $messageData) {
-                yield MessageFactory::fromMailhogResponse($messageData);
+            foreach ($allMessageData['data'] as $messageData) {
+                $message = $this->fetchMetadata($messageData['id']);
+
+                yield MessageFactory::fromMailhogResponse($message);
             }
 
-            $start += $limit;
+            $start++;
 
-            if ($start >= $allMessageData['total']) {
+            if ($start >= $allMessageData['meta']['pages_total']) {
                 return;
             }
         }
+    }
+
+    /**
+     * @return mixed[]
+     */
+    public function fetchMetadata(int $messageId): array
+    {
+        $return = $this->fetchByFormat($messageId, 'json');
+        if (array_key_exists('plain', $return['formats'])) {
+            $return['body'] = $this->fetchByFormat($messageId, 'plain')[0];
+
+            return $return;
+        }
+
+        $return['body'] = $this->fetchByFormat($messageId, 'html')[0];
+
+        return $return;
+    }
+
+    /**
+     * @return mixed[]
+     */
+    public function fetchByFormat(int $messageId, string $format): array
+    {
+        $request = $this->requestFactory->createRequest(
+            'GET',
+            sprintf(
+                '%s/api/messages/%d.%s',
+                $this->baseUri,
+                $messageId,
+                $format
+            )
+        );
+
+        $response = $this->httpClient->sendRequest($request);
+        $content = $response->getBody()->getContents();
+        if ($format === 'plain') {
+            return [rtrim($content, "\r\n")];
+        }
+
+        if ($format === 'html') {
+            return [rtrim($content, "\r\n")];
+        }
+
+        return json_decode($content, true)['data'];
     }
 
     /**
@@ -81,25 +129,9 @@ class MailhogClient
      */
     public function findLatestMessages(int $numberOfMessages): array
     {
-        $request = $this->requestFactory->createRequest(
-            'GET',
-            sprintf(
-                '%s/api/v2/messages?limit=%d',
-                $this->baseUri,
-                $numberOfMessages
-            )
-        );
+        $messages = iterator_to_array($this->findAllMessages());
 
-        $response = $this->httpClient->sendRequest($request);
-
-        $allMessageData = json_decode($response->getBody()->getContents(), true);
-
-        $messages = [];
-        foreach ($allMessageData['items'] as $messageData) {
-            $messages[] = MessageFactory::fromMailhogResponse($messageData);
-        }
-
-        return $messages;
+        return array_slice($messages, $numberOfMessages * -1, $numberOfMessages);
     }
 
     /**
@@ -128,23 +160,21 @@ class MailhogClient
 
     public function getNumberOfMessages(): int
     {
-        $request = $this->requestFactory->createRequest('GET', sprintf('%s/api/v2/messages?limit=1', $this->baseUri));
+        $messages = iterator_to_array($this->findAllMessages());
 
-        $response = $this->httpClient->sendRequest($request);
-
-        return json_decode($response->getBody()->getContents(), true)['total'];
+        return count($messages);
     }
 
     public function deleteMessage(string $messageId): void
     {
-        $request = $this->requestFactory->createRequest('DELETE', sprintf('%s/api/v1/messages/%s', $this->baseUri, $messageId));
+        $request = $this->requestFactory->createRequest('DELETE', sprintf('%s/api/messages/%s', $this->baseUri, $messageId));
 
         $this->httpClient->sendRequest($request);
     }
 
     public function purgeMessages(): void
     {
-        $request = $this->requestFactory->createRequest('DELETE', sprintf('%s/api/v1/messages', $this->baseUri));
+        $request = $this->requestFactory->createRequest('DELETE', sprintf('%s/api/messages/', $this->baseUri));
 
         $this->httpClient->sendRequest($request);
     }
@@ -165,7 +195,7 @@ class MailhogClient
 
         $request = $this->requestFactory->createRequest(
             'POST',
-            sprintf('%s/api/v1/messages/%s/release', $this->baseUri, $messageId),
+            sprintf('%s/api/messages/%s/release', $this->baseUri, $messageId),
             [],
             $body
         );
@@ -178,7 +208,7 @@ class MailhogClient
         $request = $this->requestFactory->createRequest(
             'GET',
             sprintf(
-                '%s/api/v1/messages/%s',
+                '%s/api/messages/%s',
                 $this->baseUri,
                 $messageId
             )
